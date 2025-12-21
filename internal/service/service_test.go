@@ -503,3 +503,168 @@ func TestCraftComponentConcurrent(t *testing.T) {
 		t.Fatalf("expected ActiveCraft")
 	}
 }
+
+func TestClaimCraftedComponentNoActiveCraft(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	if _, err := svc.ClaimCraftedComponent(); err != ErrNoActiveCraft {
+		t.Fatalf("expected ErrNoActiveCraft got %v", err)
+	}
+}
+
+func TestClaimCraftedComponentNotComplete(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clk.Advance(9 * time.Second)
+	if _, err := svc.ClaimCraftedComponent(); err != ErrCraftNotComplete {
+		t.Fatalf("expected ErrCraftNotComplete got %v", err)
+	}
+}
+
+func TestClaimCraftedComponentAtFinish(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clk.Advance(10 * time.Second)
+	if gained, err := svc.ClaimCraftedComponent(); err != nil || gained != 1 {
+		t.Fatalf("expected gain 1 got %d err %v", gained, err)
+	}
+
+	got := svc.GetState()
+	if got.Components != 1 {
+		t.Fatalf("expected Components 1 got %d", got.Components)
+	}
+	if got.ActiveCraft != nil {
+		t.Fatalf("expected ActiveCraft cleared")
+	}
+}
+
+func TestClaimCraftedComponentAfterFinish(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clk.Advance(15 * time.Second)
+	if gained, err := svc.ClaimCraftedComponent(); err != nil || gained != 1 {
+		t.Fatalf("expected gain 1 got %d err %v", gained, err)
+	}
+}
+
+func TestClaimCraftedComponentTwice(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clk.Advance(12 * time.Second)
+	if gained, err := svc.ClaimCraftedComponent(); err != nil || gained != 1 {
+		t.Fatalf("expected gain 1 got %d err %v", gained, err)
+	}
+	if _, err := svc.ClaimCraftedComponent(); err != ErrNoActiveCraft {
+		t.Fatalf("expected ErrNoActiveCraft got %v", err)
+	}
+}
+
+func TestClaimCraftedComponentConcurrent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clk.Advance(10 * time.Second)
+
+	startCh := make(chan struct{})
+	errCh := make(chan error, 20)
+	resultCh := make(chan int64, 20)
+
+	var wg sync.WaitGroup
+	const workers = 20
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			<-startCh
+			gained, err := svc.ClaimCraftedComponent()
+			resultCh <- gained
+			errCh <- err
+		}()
+	}
+	close(startCh)
+	wg.Wait()
+	close(resultCh)
+	close(errCh)
+
+	var success, noActive int
+	var totalGained int64
+	for gained := range resultCh {
+		totalGained += gained
+	}
+	for err := range errCh {
+		if err == nil {
+			success++
+		} else if err == ErrNoActiveCraft {
+			noActive++
+		} else {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+
+	if success != 1 || noActive != workers-1 {
+		t.Fatalf("expected 1 success and %d ErrNoActiveCraft got %d success %d no active", workers-1, success, noActive)
+	}
+	if totalGained != 1 {
+		t.Fatalf("expected total gained 1 got %d", totalGained)
+	}
+
+	got := svc.GetState()
+	if got.Components != 1 {
+		t.Fatalf("expected Components 1 got %d", got.Components)
+	}
+	if got.ActiveCraft != nil {
+		t.Fatalf("expected ActiveCraft cleared")
+	}
+}

@@ -1,5 +1,6 @@
 package config
 
+// Config defines game tuning values.
 type Config struct {
 	BaseScrapProduction          uint64
 	CraftComponentTechnologyCost uint64
@@ -7,6 +8,7 @@ type Config struct {
 	CraftDurationSecs            uint64
 }
 
+// Default returns the standard game configuration.
 func Default() Config {
 	return Config{
 		BaseScrapProduction:          1,

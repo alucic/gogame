@@ -10,6 +10,7 @@ import (
 	"scraps/internal/domain"
 )
 
+// GameService provides the concurrency-safe game API.
 type GameService struct {
 	mu  sync.Mutex
 	cfg config.Config
@@ -18,12 +19,21 @@ type GameService struct {
 }
 
 var (
+	// ErrInsufficientScrap indicates the player lacks enough scrap.
 	ErrInsufficientScrap = errors.New("insufficient scrap")
+	// ErrAlreadyUnlocked indicates the crafting technology is already unlocked.
 	ErrAlreadyUnlocked   = errors.New("already unlocked")
+	// ErrCraftingLocked indicates crafting has not been unlocked yet.
 	ErrCraftingLocked    = errors.New("crafting locked")
+	// ErrCraftInProgress indicates a craft job is already active.
 	ErrCraftInProgress   = errors.New("craft already in progress")
+	// ErrNoActiveCraft indicates there is no active craft job.
+	ErrNoActiveCraft     = errors.New("no active craft")
+	// ErrCraftNotComplete indicates the craft job has not finished yet.
+	ErrCraftNotComplete  = errors.New("craft not complete")
 )
 
+// NewGameService initializes a new game service with empty state.
 func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *GameService {
 	return &GameService{
 		cfg: cfg,
@@ -34,6 +44,7 @@ func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *Ga
 	}
 }
 
+// GetState returns a snapshot of the current state.
 func (s *GameService) GetState() domain.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -45,6 +56,7 @@ func (s *GameService) GetState() domain.State {
 	return snap
 }
 
+// Settle mints scrap based on whole seconds elapsed since last settlement.
 func (s *GameService) Settle() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -52,6 +64,7 @@ func (s *GameService) Settle() int64 {
 	return int64(mint)
 }
 
+// UnlockComponentCrafting unlocks component crafting and deducts the cost.
 func (s *GameService) UnlockComponentCrafting() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,6 +82,7 @@ func (s *GameService) UnlockComponentCrafting() error {
 	return nil
 }
 
+// CraftComponent starts a single craft job and deducts scrap immediately.
 func (s *GameService) CraftComponent() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,6 +106,23 @@ func (s *GameService) CraftComponent() error {
 		ScrapCost:  s.cfg.CraftComponentCost,
 	}
 	return nil
+}
+
+// ClaimCraftedComponent claims a finished craft job and grants one component.
+func (s *GameService) ClaimCraftedComponent() (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state.ActiveCraft == nil {
+		return 0, ErrNoActiveCraft
+	}
+	if s.clock.Now().Before(s.state.ActiveCraft.FinishesAt) {
+		return 0, ErrCraftNotComplete
+	}
+
+	s.state.Components += 1
+	s.state.ActiveCraft = nil
+	return 1, nil
 }
 
 func (s *GameService) settleLocked() uint64 {
