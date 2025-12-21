@@ -20,6 +20,8 @@ type GameService struct {
 var (
 	ErrInsufficientScrap = errors.New("insufficient scrap")
 	ErrAlreadyUnlocked   = errors.New("already unlocked")
+	ErrCraftingLocked    = errors.New("crafting locked")
+	ErrCraftInProgress   = errors.New("craft already in progress")
 )
 
 func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *GameService {
@@ -64,6 +66,31 @@ func (s *GameService) UnlockComponentCrafting() error {
 
 	s.state.Scrap -= s.cfg.CraftComponentTechnologyCost
 	s.state.CraftingUnlocked = true
+	return nil
+}
+
+func (s *GameService) CraftComponent() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.settleLocked()
+	if !s.state.CraftingUnlocked {
+		return ErrCraftingLocked
+	}
+	if s.state.ActiveCraft != nil {
+		return ErrCraftInProgress
+	}
+	if s.state.Scrap < s.cfg.CraftComponentCost {
+		return ErrInsufficientScrap
+	}
+
+	now := s.clock.Now()
+	s.state.Scrap -= s.cfg.CraftComponentCost
+	s.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  now,
+		FinishesAt: now.Add(time.Duration(s.cfg.CraftDurationSecs) * time.Second),
+		ScrapCost:  s.cfg.CraftComponentCost,
+	}
 	return nil
 }
 

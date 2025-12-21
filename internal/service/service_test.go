@@ -348,3 +348,158 @@ func TestUnlockComponentCraftingConcurrent(t *testing.T) {
 		t.Fatalf("expected CraftingUnlocked true")
 	}
 }
+
+func TestCraftComponentLocked(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	if err := svc.CraftComponent(); err != ErrCraftingLocked {
+		t.Fatalf("expected ErrCraftingLocked got %v", err)
+	}
+}
+
+func TestCraftComponentInsufficientScrap(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 9
+	svc.mu.Unlock()
+
+	if err := svc.CraftComponent(); err != ErrInsufficientScrap {
+		t.Fatalf("expected ErrInsufficientScrap got %v", err)
+	}
+}
+
+func TestCraftComponentAtCost(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.CraftDurationSecs = 10
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 10
+	svc.mu.Unlock()
+
+	if err := svc.CraftComponent(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 0 {
+		t.Fatalf("expected scrap 0 got %d", got.Scrap)
+	}
+	if got.ActiveCraft == nil {
+		t.Fatalf("expected ActiveCraft")
+	}
+	if !got.ActiveCraft.StartedAt.Equal(start) {
+		t.Fatalf("expected StartedAt %v got %v", start, got.ActiveCraft.StartedAt)
+	}
+	if !got.ActiveCraft.FinishesAt.Equal(start.Add(10 * time.Second)) {
+		t.Fatalf("expected FinishesAt %v got %v", start.Add(10*time.Second), got.ActiveCraft.FinishesAt)
+	}
+	if got.ActiveCraft.ScrapCost != 10 {
+		t.Fatalf("expected ScrapCost 10 got %d", got.ActiveCraft.ScrapCost)
+	}
+}
+
+func TestCraftComponentInProgress(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 20
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	if err := svc.CraftComponent(); err != ErrCraftInProgress {
+		t.Fatalf("expected ErrCraftInProgress got %v", err)
+	}
+}
+
+func TestCraftComponentSettlesFirst(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.BaseScrapProduction = 1
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 9
+	svc.mu.Unlock()
+
+	clk.Advance(1 * time.Second)
+	if err := svc.CraftComponent(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+}
+
+func TestCraftComponentConcurrent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 10
+	svc.mu.Unlock()
+
+	startCh := make(chan struct{})
+	errCh := make(chan error, 2)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			<-startCh
+			errCh <- svc.CraftComponent()
+		}()
+	}
+	close(startCh)
+	wg.Wait()
+	close(errCh)
+
+	var success, inProgress int
+	for err := range errCh {
+		if err == nil {
+			success++
+		} else if err == ErrCraftInProgress {
+			inProgress++
+		} else {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+
+	if success != 1 || inProgress != 1 {
+		t.Fatalf("expected 1 success and 1 ErrCraftInProgress got %d success %d in progress", success, inProgress)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 0 {
+		t.Fatalf("expected scrap 0 got %d", got.Scrap)
+	}
+	if got.ActiveCraft == nil {
+		t.Fatalf("expected ActiveCraft")
+	}
+}
