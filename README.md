@@ -39,3 +39,17 @@ Crafting is the first game mechanic that a player is presented with. Crafting ta
 - UC1: Player gains Scrap at a flat hourly rate
 - UC2: Player gains Energy at a flat hourly rate
 - UC3: Actions take longer when Energy is low
+
+## Usage
+
+Run tests with:
+
+```sh
+make test
+```
+
+Run coverage with:
+
+```sh
+make coverage
+```
