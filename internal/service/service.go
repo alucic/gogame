@@ -36,3 +36,20 @@ func (s *GameService) GetState() domain.State {
 	}
 	return snap
 }
+
+func (s *GameService) Settle() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.clk.Now()
+	elapsed := now.Sub(s.st.LastSettledAt).Seconds()
+	elapsedSeconds := int64(elapsed)
+	if elapsedSeconds <= 0 {
+		return 0
+	}
+
+	mint := uint64(elapsedSeconds) * s.cfg.BaseScrapProduction
+	s.st.Scrap += mint
+	s.st.LastSettledAt = s.st.LastSettledAt.Add(time.Duration(elapsedSeconds) * time.Second)
+	return int64(mint)
+}
