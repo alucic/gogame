@@ -29,5 +29,10 @@ func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *Ga
 func (s *GameService) GetState() domain.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.st
+	snap := s.st
+	if s.st.ActiveCraft != nil {
+		ac := *s.st.ActiveCraft
+		snap.ActiveCraft = &ac
+	}
+	return snap
 }
