@@ -125,6 +125,20 @@ func (s *GameService) ClaimCraftedComponent() (int64, error) {
 	return 1, nil
 }
 
+// CancelCraft cancels an active craft job and refunds its scrap cost.
+func (s *GameService) CancelCraft() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state.ActiveCraft == nil {
+		return ErrNoActiveCraft
+	}
+
+	s.state.Scrap += s.state.ActiveCraft.ScrapCost
+	s.state.ActiveCraft = nil
+	return nil
+}
+
 func (s *GameService) settleLocked() uint64 {
 	now := s.clock.Now()
 	elapsed := now.Sub(s.state.LastSettledAt).Seconds()

@@ -668,3 +668,162 @@ func TestClaimCraftedComponentConcurrent(t *testing.T) {
 		t.Fatalf("expected ActiveCraft cleared")
 	}
 }
+
+func TestCancelCraftNoActiveCraft(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGameService(config.Default(), &fakeClock{now: start}, start)
+
+	if err := svc.CancelCraft(); err != ErrNoActiveCraft {
+		t.Fatalf("expected ErrNoActiveCraft got %v", err)
+	}
+}
+
+func TestCancelCraftRefundsAndClears(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGameService(config.Default(), &fakeClock{now: start}, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.state.Scrap = 0
+	svc.mu.Unlock()
+
+	if err := svc.CancelCraft(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 10 {
+		t.Fatalf("expected scrap 10 got %d", got.Scrap)
+	}
+	if got.ActiveCraft != nil {
+		t.Fatalf("expected ActiveCraft cleared")
+	}
+}
+
+func TestCancelCraftAfterCompletionRefundsNoComponent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.state.Scrap = 0
+	svc.mu.Unlock()
+
+	clk.Advance(20 * time.Second)
+	if err := svc.CancelCraft(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 10 {
+		t.Fatalf("expected scrap 10 got %d", got.Scrap)
+	}
+	if got.Components != 0 {
+		t.Fatalf("expected Components 0 got %d", got.Components)
+	}
+	if got.ActiveCraft != nil {
+		t.Fatalf("expected ActiveCraft cleared")
+	}
+}
+
+func TestCancelCraftAllowsNewCraft(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.state.Scrap = 0
+	svc.mu.Unlock()
+
+	if err := svc.CancelCraft(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if err := svc.CraftComponent(); err != nil {
+		t.Fatalf("expected craft success got %v", err)
+	}
+}
+
+func TestCancelCraftVsClaimRace(t *testing.T) {
+	// Both cancel and claim race against a completed craft; exactly one outcome should win.
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.state.Scrap = 0
+	svc.mu.Unlock()
+
+	clk.Advance(10 * time.Second)
+
+	startCh := make(chan struct{})
+	errCh := make(chan error, 2)
+	claimCh := make(chan int64, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-startCh
+		errCh <- svc.CancelCraft()
+	}()
+	go func() {
+		defer wg.Done()
+		<-startCh
+		gained, err := svc.ClaimCraftedComponent()
+		if err == nil {
+			claimCh <- gained
+		}
+		errCh <- err
+	}()
+	close(startCh)
+	wg.Wait()
+	close(errCh)
+	close(claimCh)
+
+	got := svc.GetState()
+	if got.Components > 1 {
+		t.Fatalf("expected Components <= 1 got %d", got.Components)
+	}
+	if got.Components == 1 && got.Scrap != 0 {
+		t.Fatalf("expected no refund when component claimed")
+	}
+	if got.Components == 0 && got.Scrap != 10 {
+		t.Fatalf("expected refund when component not claimed")
+	}
+
+	var success, noActive int
+	for err := range errCh {
+		if err == nil {
+			success++
+		} else if err == ErrNoActiveCraft {
+			noActive++
+		} else {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+	if success != 1 || noActive != 1 {
+		t.Fatalf("expected 1 success and 1 ErrNoActiveCraft got %d success %d no active", success, noActive)
+	}
+}
