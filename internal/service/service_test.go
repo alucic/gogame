@@ -49,8 +49,8 @@ func TestGetStateReturnsCopy(t *testing.T) {
 	}
 
 	svc.mu.Lock()
-	svc.st.Scrap = 5
-	svc.st.ActiveCraft = original
+	svc.state.Scrap = 5
+	svc.state.ActiveCraft = original
 	svc.mu.Unlock()
 
 	snap := svc.GetState()
@@ -62,16 +62,16 @@ func TestGetStateReturnsCopy(t *testing.T) {
 
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.st.Scrap != 5 {
-		t.Fatalf("expected internal Scrap to remain 5 got %d", svc.st.Scrap)
+	if svc.state.Scrap != 5 {
+		t.Fatalf("expected internal Scrap to remain 5 got %d", svc.state.Scrap)
 	}
-	if svc.st.ActiveCraft == nil {
+	if svc.state.ActiveCraft == nil {
 		t.Fatalf("expected internal ActiveCraft")
 	}
-	if svc.st.ActiveCraft.ScrapCost != 10 {
-		t.Fatalf("expected internal ScrapCost to remain 10 got %d", svc.st.ActiveCraft.ScrapCost)
+	if svc.state.ActiveCraft.ScrapCost != 10 {
+		t.Fatalf("expected internal ScrapCost to remain 10 got %d", svc.state.ActiveCraft.ScrapCost)
 	}
-	if svc.st.ActiveCraft == snap.ActiveCraft {
+	if svc.state.ActiveCraft == snap.ActiveCraft {
 		t.Fatalf("expected deep copy of ActiveCraft")
 	}
 }
@@ -213,5 +213,138 @@ func TestSettleConcurrent(t *testing.T) {
 	}
 	if !got.LastSettledAt.Equal(start.Add(10 * time.Second)) {
 		t.Fatalf("expected LastSettledAt advanced by 10s")
+	}
+}
+
+func TestUnlockComponentCraftingInsufficient(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 99
+	svc.mu.Unlock()
+
+	if err := svc.UnlockComponentCrafting(); err != ErrInsufficientScrap {
+		t.Fatalf("expected ErrInsufficientScrap got %v", err)
+	}
+}
+
+func TestUnlockComponentCraftingAtCost(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 100
+	svc.mu.Unlock()
+
+	if err := svc.UnlockComponentCrafting(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 0 {
+		t.Fatalf("expected scrap 0 got %d", got.Scrap)
+	}
+	if !got.CraftingUnlocked {
+		t.Fatalf("expected CraftingUnlocked true")
+	}
+}
+
+func TestUnlockComponentCraftingIdempotent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 100
+	svc.mu.Unlock()
+
+	if err := svc.UnlockComponentCrafting(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if err := svc.UnlockComponentCrafting(); err != ErrAlreadyUnlocked {
+		t.Fatalf("expected ErrAlreadyUnlocked got %v", err)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 0 {
+		t.Fatalf("expected scrap 0 got %d", got.Scrap)
+	}
+}
+
+func TestUnlockComponentCraftingSettlesFirst(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	cfg.BaseScrapProduction = 1
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 99
+	svc.mu.Unlock()
+
+	clk.Advance(1 * time.Second)
+	if err := svc.UnlockComponentCrafting(); err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+}
+
+func TestUnlockComponentCraftingConcurrent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 100
+	svc.mu.Unlock()
+
+	startCh := make(chan struct{})
+	errCh := make(chan error, 2)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			<-startCh
+			errCh <- svc.UnlockComponentCrafting()
+		}()
+	}
+	close(startCh)
+	wg.Wait()
+	close(errCh)
+
+	var success, already int
+	for err := range errCh {
+		if err == nil {
+			success++
+		} else if err == ErrAlreadyUnlocked {
+			already++
+		} else {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+
+	if success != 1 || already != 1 {
+		t.Fatalf("expected 1 success and 1 ErrAlreadyUnlocked got %d success %d already", success, already)
+	}
+
+	got := svc.GetState()
+	if got.Scrap != 0 {
+		t.Fatalf("expected scrap 0 got %d", got.Scrap)
+	}
+	if !got.CraftingUnlocked {
+		t.Fatalf("expected CraftingUnlocked true")
 	}
 }

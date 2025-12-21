@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -12,15 +13,20 @@ import (
 type GameService struct {
 	mu  sync.Mutex
 	cfg config.Config
-	clk clock.Clock
-	st  domain.State
+	clock clock.Clock
+	state domain.State
 }
+
+var (
+	ErrInsufficientScrap = errors.New("insufficient scrap")
+	ErrAlreadyUnlocked   = errors.New("already unlocked")
+)
 
 func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *GameService {
 	return &GameService{
 		cfg: cfg,
-		clk: clk,
-		st: domain.State{
+		clock: clk,
+		state: domain.State{
 			LastSettledAt: startTime,
 		},
 	}
@@ -29,9 +35,9 @@ func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *Ga
 func (s *GameService) GetState() domain.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	snap := s.st
-	if s.st.ActiveCraft != nil {
-		ac := *s.st.ActiveCraft
+	snap := s.state
+	if s.state.ActiveCraft != nil {
+		ac := *s.state.ActiveCraft
 		snap.ActiveCraft = &ac
 	}
 	return snap
@@ -40,16 +46,37 @@ func (s *GameService) GetState() domain.State {
 func (s *GameService) Settle() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	mint := s.settleLocked()
+	return int64(mint)
+}
 
-	now := s.clk.Now()
-	elapsed := now.Sub(s.st.LastSettledAt).Seconds()
+func (s *GameService) UnlockComponentCrafting() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.settleLocked()
+	if s.state.CraftingUnlocked {
+		return ErrAlreadyUnlocked
+	}
+	if s.state.Scrap < s.cfg.CraftComponentTechnologyCost {
+		return ErrInsufficientScrap
+	}
+
+	s.state.Scrap -= s.cfg.CraftComponentTechnologyCost
+	s.state.CraftingUnlocked = true
+	return nil
+}
+
+func (s *GameService) settleLocked() uint64 {
+	now := s.clock.Now()
+	elapsed := now.Sub(s.state.LastSettledAt).Seconds()
 	elapsedSeconds := int64(elapsed)
 	if elapsedSeconds <= 0 {
 		return 0
 	}
 
 	mint := uint64(elapsedSeconds) * s.cfg.BaseScrapProduction
-	s.st.Scrap += mint
-	s.st.LastSettledAt = s.st.LastSettledAt.Add(time.Duration(elapsedSeconds) * time.Second)
-	return int64(mint)
+	s.state.Scrap += mint
+	s.state.LastSettledAt = s.state.LastSettledAt.Add(time.Duration(elapsedSeconds) * time.Second)
+	return mint
 }
