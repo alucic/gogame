@@ -6,12 +6,18 @@ import "time"
 type EventType string
 
 const EventTypeScrapSettled EventType = "ScrapSettled"
+const EventTypeCraftingUnlocked EventType = "CraftingUnlocked"
 
 // ScrapSettledData is the payload for a scrap settlement event.
 type ScrapSettledData struct {
 	Minted uint64
 	From   time.Time
 	To     time.Time
+}
+
+// CraftingUnlockedData is the payload for a crafting unlock event.
+type CraftingUnlockedData struct {
+	Cost int64
 }
 
 // Event represents a game event produced by command execution.

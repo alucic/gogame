@@ -475,6 +475,72 @@ func TestUnlockComponentCraftingAtCost(t *testing.T) {
 	}
 }
 
+func TestExecuteUnlockComponentCraftingEmitsEvent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	cfg.BaseScrapProduction = 0
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 100
+	svc.mu.Unlock()
+
+	result, err := svc.Execute(commands.UnlockComponentCrafting{ID: "unlock-1"})
+	if err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(result.Events))
+	}
+	ev := result.Events[0]
+	if ev.Type != events.EventTypeCraftingUnlocked {
+		t.Fatalf("expected CraftingUnlocked event got %s", ev.Type)
+	}
+	if ev.CommandID != "unlock-1" {
+		t.Fatalf("expected CommandID unlock-1 got %s", ev.CommandID)
+	}
+	data, ok := ev.Data.(events.CraftingUnlockedData)
+	if !ok {
+		t.Fatalf("expected CraftingUnlockedData payload")
+	}
+	if data.Cost != 100 {
+		t.Fatalf("expected Cost 100 got %d", data.Cost)
+	}
+}
+
+func TestExecuteUnlockComponentCraftingEmitsSettlementThenUnlock(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentTechnologyCost = 100
+	cfg.BaseScrapProduction = 1
+	clk := &fakeClock{now: start}
+	svc := NewGameService(cfg, clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 99
+	svc.mu.Unlock()
+
+	clk.Advance(1 * time.Second)
+	result, err := svc.Execute(commands.UnlockComponentCrafting{ID: "unlock-1"})
+	if err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected 2 events got %d", len(result.Events))
+	}
+	if result.Events[0].Type != events.EventTypeScrapSettled {
+		t.Fatalf("expected first event ScrapSettled got %s", result.Events[0].Type)
+	}
+	if result.Events[1].Type != events.EventTypeCraftingUnlocked {
+		t.Fatalf("expected second event CraftingUnlocked got %s", result.Events[1].Type)
+	}
+	if result.Events[0].CommandID != "unlock-1" || result.Events[1].CommandID != "unlock-1" {
+		t.Fatalf("expected CommandID unlock-1 on both events")
+	}
+}
+
 func TestUnlockComponentCraftingIdempotent(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	cfg := config.Default()

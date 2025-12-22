@@ -73,7 +73,7 @@ func (s *GameService) Settle() int64 {
 // UnlockComponentCrafting unlocks component crafting and deducts the cost.
 func (s *GameService) UnlockComponentCrafting() error {
 	command := commands.UnlockComponentCrafting{
-		ID: "unlock_component_crafting",
+		ID: "legacy",
 	}
 	_, err := s.Execute(command)
 	return err
@@ -160,6 +160,20 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 		command.MintedScrap = minted
 	case commands.UnlockComponentCrafting:
 		err = s.unlockComponentCraftingLocked()
+		if err == nil {
+			s.eventSequence++
+			unlockEvent := events.New(
+				s.eventSequence,
+				s.clock.Now(),
+				cmd.CommandID(),
+				events.EventTypeCraftingUnlocked,
+				events.CraftingUnlockedData{
+					Cost: int64(s.cfg.CraftComponentTechnologyCost),
+				},
+			)
+			s.events = append(s.events, unlockEvent)
+			eventsList = append(eventsList, unlockEvent)
+		}
 	case commands.CraftComponent:
 		err = s.craftComponentLocked()
 	case *commands.ClaimCraftedComponent:
