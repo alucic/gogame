@@ -135,6 +135,104 @@ func TestExecuteConcurrentSyncState(t *testing.T) {
 	wg.Wait()
 }
 
+func TestExecuteEventIDsIncrement(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	first, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(first.Events) != 1 || first.Events[0].ID != 1 {
+		t.Fatalf("expected first event ID 1 got %+v", first.Events)
+	}
+
+	second, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(second.Events) != 1 || second.Events[0].ID != 2 {
+		t.Fatalf("expected second event ID 2 got %+v", second.Events)
+	}
+}
+
+func TestListEventsFilteringAndLimit(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-3"})
+
+	all := svc.ListEvents(0, 0)
+	if len(all) != 3 {
+		t.Fatalf("expected 3 events got %d", len(all))
+	}
+
+	filtered := svc.ListEvents(1, 1)
+	if len(filtered) != 1 || filtered[0].ID != 2 {
+		t.Fatalf("expected only event ID 2 got %+v", filtered)
+	}
+}
+
+func TestListEventsReturnsCopy(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+
+	first := svc.ListEvents(0, 1)
+	if len(first) != 1 {
+		t.Fatalf("expected 1 event got %d", len(first))
+	}
+	first[0].Type = "mutated"
+
+	second := svc.ListEvents(0, 1)
+	if second[0].Type == "mutated" {
+		t.Fatalf("expected internal event to remain unchanged")
+	}
+}
+
+func TestExecuteSyncStateConcurrentEvents(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	var wg sync.WaitGroup
+	const workers = 50
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			cmd := commands.SyncState{CommandIDValue: "sync"}
+			_, _ = svc.Execute(cmd)
+		}(i)
+	}
+	wg.Wait()
+
+	events := svc.ListEvents(0, 0)
+	if len(events) != workers {
+		t.Fatalf("expected %d events got %d", workers, len(events))
+	}
+
+	seen := make(map[int64]struct{}, len(events))
+	var last int64
+	for _, ev := range events {
+		if _, ok := seen[ev.ID]; ok {
+			t.Fatalf("duplicate event ID %d", ev.ID)
+		}
+		seen[ev.ID] = struct{}{}
+		if ev.ID <= last {
+			t.Fatalf("expected increasing IDs, got %d after %d", ev.ID, last)
+		}
+		last = ev.ID
+	}
+}
+
 func TestSettleNoMintUnderOneSecond(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}

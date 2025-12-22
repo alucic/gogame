@@ -18,6 +18,8 @@ type GameService struct {
 	cfg config.Config
 	clock clock.Clock
 	state domain.State
+	eventSequence int64
+	events        []events.Event
 }
 
 // Result is the outcome of executing a command.
@@ -104,6 +106,27 @@ func (s *GameService) CancelCraft() error {
 	return err
 }
 
+// ListEvents returns events after the given ID, up to limit entries.
+func (s *GameService) ListEvents(sinceID int64, limit int) []events.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var filtered []events.Event
+	for _, ev := range s.events {
+		if ev.ID <= sinceID {
+			continue
+		}
+		filtered = append(filtered, ev)
+		if limit > 0 && len(filtered) >= limit {
+			break
+		}
+	}
+
+	out := make([]events.Event, len(filtered))
+	copy(out, filtered)
+	return out
+}
+
 // Execute runs a command and returns the resulting state snapshot.
 func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 	s.mu.Lock()
@@ -131,6 +154,17 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 	case commands.CancelCraft:
 		err = s.cancelCraftLocked()
 	}
+
+	s.eventSequence++
+	eventItem := events.Event{
+		ID:        s.eventSequence,
+		At:        s.clock.Now(),
+		CommandID: cmd.CommandID(),
+		Type:      events.EventType(cmd.Name()),
+		Data:      nil,
+	}
+	s.events = append(s.events, eventItem)
+	eventsList = append(eventsList, eventItem)
 
 	result.State = s.snapshotLocked()
 	result.Events = eventsList
