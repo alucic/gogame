@@ -18,7 +18,7 @@ type GameService struct {
 	cfg config.Config
 	clock clock.Clock
 	state domain.State
-	eventSequence int64
+	eventSequence uint64
 	events        []events.Event
 }
 
@@ -44,10 +44,10 @@ var (
 )
 
 // NewGameService initializes a new game service with empty state.
-func NewGameService(cfg config.Config, clk clock.Clock, startTime time.Time) *GameService {
+func NewGameService(cfg config.Config, clock clock.Clock, startTime time.Time) *GameService {
 	return &GameService{
 		cfg: cfg,
-		clock: clk,
+		clock: clock,
 		state: domain.State{
 			LastSettledAt: startTime,
 		},
@@ -107,7 +107,7 @@ func (s *GameService) CancelCraft() error {
 }
 
 // ListEvents returns events after the given ID, up to limit entries.
-func (s *GameService) ListEvents(sinceID int64, limit int) []events.Event {
+func (s *GameService) ListEvents(sinceID uint64, limit int) []events.Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -136,16 +136,31 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 	var err error
 	var eventsList []events.Event
 
+	minted, from, to := s.settleLocked()
+	if minted > 0 {
+		s.eventSequence++
+		settledEvent := events.New(
+			s.eventSequence,
+			s.clock.Now(),
+			cmd.CommandID(),
+			events.EventTypeScrapSettled,
+			events.ScrapSettledData{
+				Minted: minted,
+				From:   from,
+				To:     to,
+			},
+		)
+		s.events = append(s.events, settledEvent)
+		eventsList = append(eventsList, settledEvent)
+	}
+
 	switch command := cmd.(type) {
 	case commands.SyncState:
-		s.settleLocked()
 	case *commands.Settle:
-		command.MintedScrap = s.settleLocked()
+		command.MintedScrap = minted
 	case commands.UnlockComponentCrafting:
-		s.settleLocked()
 		err = s.unlockComponentCraftingLocked()
 	case commands.CraftComponent:
-		s.settleLocked()
 		err = s.craftComponentLocked()
 	case *commands.ClaimCraftedComponent:
 		var gained uint64
@@ -154,17 +169,6 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 	case commands.CancelCraft:
 		err = s.cancelCraftLocked()
 	}
-
-	s.eventSequence++
-	eventItem := events.Event{
-		ID:        s.eventSequence,
-		At:        s.clock.Now(),
-		CommandID: cmd.CommandID(),
-		Type:      events.EventType(cmd.Name()),
-		Data:      nil,
-	}
-	s.events = append(s.events, eventItem)
-	eventsList = append(eventsList, eventItem)
 
 	result.State = s.snapshotLocked()
 	result.Events = eventsList
@@ -180,18 +184,19 @@ func (s *GameService) snapshotLocked() domain.State {
 	return snap
 }
 
-func (s *GameService) settleLocked() uint64 {
+func (s *GameService) settleLocked() (uint64, time.Time, time.Time) {
 	now := s.clock.Now()
-	elapsed := now.Sub(s.state.LastSettledAt).Seconds()
+	from := s.state.LastSettledAt
+	elapsed := now.Sub(from).Seconds()
 	elapsedSeconds := int64(elapsed)
 	if elapsedSeconds <= 0 {
-		return 0
+		return 0, from, from
 	}
 
 	mint := uint64(elapsedSeconds) * s.cfg.BaseScrapProduction
 	s.state.Scrap += mint
-	s.state.LastSettledAt = s.state.LastSettledAt.Add(time.Duration(elapsedSeconds) * time.Second)
-	return mint
+	s.state.LastSettledAt = from.Add(time.Duration(elapsedSeconds) * time.Second)
+	return mint, from, s.state.LastSettledAt
 }
 
 func (s *GameService) unlockComponentCraftingLocked() error {

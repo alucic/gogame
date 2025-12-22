@@ -9,6 +9,7 @@ import (
 	"scraps/internal/commands"
 	"scraps/internal/config"
 	"scraps/internal/domain"
+	"scraps/internal/events"
 )
 
 type fakeClock struct {
@@ -135,11 +136,85 @@ func TestExecuteConcurrentSyncState(t *testing.T) {
 	wg.Wait()
 }
 
+func TestExecuteSyncStateNoSettlementEventUnderOneSecond(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	clk.Advance(500 * time.Millisecond)
+	result, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected 0 events got %d", len(result.Events))
+	}
+}
+
+func TestExecuteSyncStateSettlementEvent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	clk.Advance(10 * time.Second)
+	result, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(result.Events))
+	}
+	ev := result.Events[0]
+	if ev.Type != events.EventTypeScrapSettled {
+		t.Fatalf("expected ScrapSettled event got %s", ev.Type)
+	}
+	data, ok := ev.Data.(events.ScrapSettledData)
+	if !ok {
+		t.Fatalf("expected ScrapSettledData payload")
+	}
+	if data.Minted != 10 {
+		t.Fatalf("expected Minted 10 got %d", data.Minted)
+	}
+	if !data.From.Equal(start) || !data.To.Equal(start.Add(10*time.Second)) {
+		t.Fatalf("unexpected From/To: %+v", data)
+	}
+	if !ev.At.Equal(start.Add(10 * time.Second)) {
+		t.Fatalf("expected At %v got %v", start.Add(10*time.Second), ev.At)
+	}
+	if ev.CommandID != "sync-1" {
+		t.Fatalf("expected CommandID sync-1 got %s", ev.CommandID)
+	}
+}
+
+func TestExecuteSyncStateNoEventWhenNoTimePasses(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	clk.Advance(1 * time.Second)
+	first, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(first.Events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(first.Events))
+	}
+
+	second, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if len(second.Events) != 0 {
+		t.Fatalf("expected 0 events got %d", len(second.Events))
+	}
+}
+
 func TestExecuteEventIDsIncrement(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
 	svc := NewGameService(config.Default(), clk, start)
 
+	clk.Advance(1 * time.Second)
 	first, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
@@ -148,6 +223,7 @@ func TestExecuteEventIDsIncrement(t *testing.T) {
 		t.Fatalf("expected first event ID 1 got %+v", first.Events)
 	}
 
+	clk.Advance(1 * time.Second)
 	second, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
@@ -162,8 +238,11 @@ func TestListEventsFilteringAndLimit(t *testing.T) {
 	clk := &fakeClock{now: start}
 	svc := NewGameService(config.Default(), clk, start)
 
+	clk.Advance(1 * time.Second)
 	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	clk.Advance(1 * time.Second)
 	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	clk.Advance(1 * time.Second)
 	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-3"})
 
 	all := svc.ListEvents(0, 0)
@@ -182,6 +261,7 @@ func TestListEventsReturnsCopy(t *testing.T) {
 	clk := &fakeClock{now: start}
 	svc := NewGameService(config.Default(), clk, start)
 
+	clk.Advance(1 * time.Second)
 	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
 
 	first := svc.ListEvents(0, 1)
@@ -201,6 +281,8 @@ func TestExecuteSyncStateConcurrentEvents(t *testing.T) {
 	clk := &fakeClock{now: start}
 	svc := NewGameService(config.Default(), clk, start)
 
+	clk.Advance(10 * time.Second)
+
 	var wg sync.WaitGroup
 	const workers = 50
 
@@ -215,12 +297,12 @@ func TestExecuteSyncStateConcurrentEvents(t *testing.T) {
 	wg.Wait()
 
 	events := svc.ListEvents(0, 0)
-	if len(events) != workers {
-		t.Fatalf("expected %d events got %d", workers, len(events))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(events))
 	}
 
-	seen := make(map[int64]struct{}, len(events))
-	var last int64
+	seen := make(map[uint64]struct{}, len(events))
+	var last uint64
 	for _, ev := range events {
 		if _, ok := seen[ev.ID]; ok {
 			t.Fatalf("duplicate event ID %d", ev.ID)
@@ -844,7 +926,9 @@ func TestCancelCraftRefundsAndClears(t *testing.T) {
 func TestCancelCraftAfterCompletionRefundsNoComponent(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -901,7 +985,9 @@ func TestCancelCraftVsClaimRace(t *testing.T) {
 	// Both cancel and claim race against a completed craft; exactly one outcome should win.
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{

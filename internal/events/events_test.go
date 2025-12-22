@@ -11,7 +11,7 @@ func TestEventFields(t *testing.T) {
 		ID:        1,
 		At:        now,
 		CommandID: "cmd-1",
-		Type:      EventType("SyncState"),
+		Type:      EventTypeScrapSettled,
 		Data:      "payload",
 	}
 
@@ -24,8 +24,8 @@ func TestEventFields(t *testing.T) {
 	if ev.CommandID != "cmd-1" {
 		t.Fatalf("expected CommandID cmd-1 got %s", ev.CommandID)
 	}
-	if ev.Type != EventType("SyncState") {
-		t.Fatalf("expected Type SyncState got %s", ev.Type)
+	if ev.Type != EventTypeScrapSettled {
+		t.Fatalf("expected Type ScrapSettled got %s", ev.Type)
 	}
 	if ev.Data != "payload" {
 		t.Fatalf("expected Data payload got %v", ev.Data)
