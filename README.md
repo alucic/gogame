@@ -42,6 +42,19 @@ Crafting is the first game mechanic that a player is presented with. Crafting ta
 
 ## Usage
 
+## Service API
+
+The primary API is `internal/service.GameService`, which manages in-memory
+game state with a mutex and exposes:
+
+- `NewGameService`
+- `GetState`
+- `Settle`
+- `UnlockComponentCrafting`
+- `CraftComponent`
+- `ClaimCraftedComponent`
+- `CancelCraft`
+
 Run tests with:
 
 ```sh
@@ -52,4 +65,10 @@ Run coverage with:
 
 ```sh
 make coverage
+```
+
+Run race detection with:
+
+```sh
+go test ./... -race
 ```
