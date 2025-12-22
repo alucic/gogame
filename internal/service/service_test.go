@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"scraps/internal/clock"
+	"scraps/internal/commands"
 	"scraps/internal/config"
 	"scraps/internal/domain"
 )
@@ -91,6 +92,44 @@ func TestGetStateConcurrent(t *testing.T) {
 			for j := 0; j < iterations; j++ {
 				_ = svc.GetState()
 			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestExecuteSyncStateReturnsSnapshot(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	svc.mu.Lock()
+	svc.state.Scrap = 7
+	svc.mu.Unlock()
+
+	cmd := commands.SyncState{CommandIDValue: "sync-1"}
+	result, err := svc.Execute(cmd)
+	if err != nil {
+		t.Fatalf("expected nil error got %v", err)
+	}
+	if result.State.Scrap != 7 {
+		t.Fatalf("expected scrap 7 got %d", result.State.Scrap)
+	}
+}
+
+func TestExecuteConcurrentSyncState(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := &fakeClock{now: start}
+	svc := NewGameService(config.Default(), clk, start)
+
+	var wg sync.WaitGroup
+	const workers = 50
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			cmd := commands.SyncState{CommandIDValue: "sync-1"}
+			_, _ = svc.Execute(cmd)
 		}()
 	}
 	wg.Wait()

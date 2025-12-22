@@ -17,3 +17,11 @@ type CraftJob struct {
 	FinishesAt time.Time
 	ScrapCost  uint64
 }
+
+func cloneCraftJob(job *CraftJob) *CraftJob {
+	if job == nil {
+		return nil
+	}
+	clone := *job
+	return &clone
+}

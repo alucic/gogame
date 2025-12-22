@@ -54,6 +54,18 @@ game state with a mutex and exposes:
 - `CraftComponent`
 - `ClaimCraftedComponent`
 - `CancelCraft`
+- `Execute`
+
+## Commands and Events
+
+Commands are typed request objects (in `internal/commands`) that describe
+what operation to run against the game state. The `Execute` method accepts a
+command and returns a `Result` containing the post-command state snapshot.
+
+Events are lightweight records (in `internal/events`) that can be emitted
+during command execution. They are returned in the `Result.Events` slice and
+can later drive UI updates or analytics. Currently the API returns an empty
+event list, but the type is in place for future use.
 
 Run tests with:
 
