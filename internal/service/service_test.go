@@ -107,7 +107,7 @@ func TestExecuteSyncStateReturnsSnapshot(t *testing.T) {
 	svc.state.Scrap = 7
 	svc.mu.Unlock()
 
-	cmd := commands.SyncState{CommandIDValue: "sync-1"}
+	cmd := commands.SyncState{ID: "sync-1"}
 	result, err := svc.Execute(cmd)
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
@@ -129,7 +129,7 @@ func TestExecuteConcurrentSyncState(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
-			cmd := commands.SyncState{CommandIDValue: "sync-1"}
+			cmd := commands.SyncState{ID: "sync-1"}
 			_, _ = svc.Execute(cmd)
 		}()
 	}
@@ -142,7 +142,7 @@ func TestExecuteSyncStateNoSettlementEventUnderOneSecond(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(500 * time.Millisecond)
-	result, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	result, err := svc.Execute(commands.SyncState{ID: "sync-1"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -157,7 +157,7 @@ func TestExecuteSyncStateSettlementEvent(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(10 * time.Second)
-	result, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	result, err := svc.Execute(commands.SyncState{ID: "sync-1"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -192,7 +192,7 @@ func TestExecuteSyncStateNoEventWhenNoTimePasses(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(1 * time.Second)
-	first, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	first, err := svc.Execute(commands.SyncState{ID: "sync-1"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -200,7 +200,7 @@ func TestExecuteSyncStateNoEventWhenNoTimePasses(t *testing.T) {
 		t.Fatalf("expected 1 event got %d", len(first.Events))
 	}
 
-	second, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	second, err := svc.Execute(commands.SyncState{ID: "sync-2"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -215,7 +215,7 @@ func TestExecuteEventIDsIncrement(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(1 * time.Second)
-	first, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	first, err := svc.Execute(commands.SyncState{ID: "sync-1"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -224,7 +224,7 @@ func TestExecuteEventIDsIncrement(t *testing.T) {
 	}
 
 	clk.Advance(1 * time.Second)
-	second, err := svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	second, err := svc.Execute(commands.SyncState{ID: "sync-2"})
 	if err != nil {
 		t.Fatalf("expected nil error got %v", err)
 	}
@@ -239,11 +239,11 @@ func TestListEventsFilteringAndLimit(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(1 * time.Second)
-	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	_, _ = svc.Execute(commands.SyncState{ID: "sync-1"})
 	clk.Advance(1 * time.Second)
-	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-2"})
+	_, _ = svc.Execute(commands.SyncState{ID: "sync-2"})
 	clk.Advance(1 * time.Second)
-	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-3"})
+	_, _ = svc.Execute(commands.SyncState{ID: "sync-3"})
 
 	all := svc.ListEvents(0, 0)
 	if len(all) != 3 {
@@ -262,7 +262,7 @@ func TestListEventsReturnsCopy(t *testing.T) {
 	svc := NewGameService(config.Default(), clk, start)
 
 	clk.Advance(1 * time.Second)
-	_, _ = svc.Execute(commands.SyncState{CommandIDValue: "sync-1"})
+	_, _ = svc.Execute(commands.SyncState{ID: "sync-1"})
 
 	first := svc.ListEvents(0, 1)
 	if len(first) != 1 {
@@ -290,7 +290,7 @@ func TestExecuteSyncStateConcurrentEvents(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func(i int) {
 			defer wg.Done()
-			cmd := commands.SyncState{CommandIDValue: "sync"}
+			cmd := commands.SyncState{ID: "sync"}
 			_, _ = svc.Execute(cmd)
 		}(i)
 	}

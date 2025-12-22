@@ -3,7 +3,7 @@ package commands
 import "testing"
 
 func TestSyncStateCommand(t *testing.T) {
-	cmd := SyncState{CommandIDValue: "sync-1"}
+	cmd := SyncState{ID: "sync-1"}
 	if cmd.CommandID() != "sync-1" {
 		t.Fatalf("expected CommandID sync-1 got %s", cmd.CommandID())
 	}
@@ -13,7 +13,7 @@ func TestSyncStateCommand(t *testing.T) {
 }
 
 func TestSettleCommand(t *testing.T) {
-	cmd := &Settle{CommandIDValue: "settle-1"}
+	cmd := &Settle{ID: "settle-1"}
 	if cmd.CommandID() != "settle-1" {
 		t.Fatalf("expected CommandID settle-1 got %s", cmd.CommandID())
 	}
@@ -23,7 +23,7 @@ func TestSettleCommand(t *testing.T) {
 }
 
 func TestUnlockComponentCraftingCommand(t *testing.T) {
-	cmd := UnlockComponentCrafting{CommandIDValue: "unlock-1"}
+	cmd := UnlockComponentCrafting{ID: "unlock-1"}
 	if cmd.CommandID() != "unlock-1" {
 		t.Fatalf("expected CommandID unlock-1 got %s", cmd.CommandID())
 	}
@@ -33,7 +33,7 @@ func TestUnlockComponentCraftingCommand(t *testing.T) {
 }
 
 func TestCraftComponentCommand(t *testing.T) {
-	cmd := CraftComponent{CommandIDValue: "craft-1"}
+	cmd := CraftComponent{ID: "craft-1"}
 	if cmd.CommandID() != "craft-1" {
 		t.Fatalf("expected CommandID craft-1 got %s", cmd.CommandID())
 	}
@@ -43,7 +43,7 @@ func TestCraftComponentCommand(t *testing.T) {
 }
 
 func TestClaimCraftedComponentCommand(t *testing.T) {
-	cmd := &ClaimCraftedComponent{CommandIDValue: "claim-1"}
+	cmd := &ClaimCraftedComponent{ID: "claim-1"}
 	if cmd.CommandID() != "claim-1" {
 		t.Fatalf("expected CommandID claim-1 got %s", cmd.CommandID())
 	}
@@ -53,7 +53,7 @@ func TestClaimCraftedComponentCommand(t *testing.T) {
 }
 
 func TestCancelCraftCommand(t *testing.T) {
-	cmd := CancelCraft{CommandIDValue: "cancel-1"}
+	cmd := CancelCraft{ID: "cancel-1"}
 	if cmd.CommandID() != "cancel-1" {
 		t.Fatalf("expected CommandID cancel-1 got %s", cmd.CommandID())
 	}

@@ -8,11 +8,11 @@ type Command interface {
 
 // SyncState requests a state snapshot without changing game state.
 type SyncState struct {
-	CommandIDValue string
+	ID string
 }
 
 func (c SyncState) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c SyncState) Name() string {
@@ -21,12 +21,12 @@ func (c SyncState) Name() string {
 
 // Settle requests scrap settlement and exposes the minted amount.
 type Settle struct {
-	CommandIDValue string
+	ID          string
 	MintedScrap    uint64
 }
 
 func (c *Settle) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c *Settle) Name() string {
@@ -35,11 +35,11 @@ func (c *Settle) Name() string {
 
 // UnlockComponentCrafting attempts to unlock component crafting.
 type UnlockComponentCrafting struct {
-	CommandIDValue string
+	ID string
 }
 
 func (c UnlockComponentCrafting) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c UnlockComponentCrafting) Name() string {
@@ -48,11 +48,11 @@ func (c UnlockComponentCrafting) Name() string {
 
 // CraftComponent starts a component crafting job.
 type CraftComponent struct {
-	CommandIDValue string
+	ID string
 }
 
 func (c CraftComponent) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c CraftComponent) Name() string {
@@ -61,12 +61,12 @@ func (c CraftComponent) Name() string {
 
 // ClaimCraftedComponent claims a completed craft and exposes components gained.
 type ClaimCraftedComponent struct {
-	CommandIDValue   string
+	ID               string
 	ComponentsGained uint64
 }
 
 func (c *ClaimCraftedComponent) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c *ClaimCraftedComponent) Name() string {
@@ -75,11 +75,11 @@ func (c *ClaimCraftedComponent) Name() string {
 
 // CancelCraft cancels a craft job and refunds scrap.
 type CancelCraft struct {
-	CommandIDValue string
+	ID string
 }
 
 func (c CancelCraft) CommandID() string {
-	return c.CommandIDValue
+	return c.ID
 }
 
 func (c CancelCraft) Name() string {

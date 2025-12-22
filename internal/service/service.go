@@ -64,7 +64,7 @@ func (s *GameService) GetState() domain.State {
 // Settle mints scrap based on whole seconds elapsed since last settlement.
 func (s *GameService) Settle() int64 {
 	command := &commands.Settle{
-		CommandIDValue: "settle",
+		ID: "settle",
 	}
 	_, _ = s.Execute(command)
 	return int64(command.MintedScrap)
@@ -73,7 +73,7 @@ func (s *GameService) Settle() int64 {
 // UnlockComponentCrafting unlocks component crafting and deducts the cost.
 func (s *GameService) UnlockComponentCrafting() error {
 	command := commands.UnlockComponentCrafting{
-		CommandIDValue: "unlock_component_crafting",
+		ID: "unlock_component_crafting",
 	}
 	_, err := s.Execute(command)
 	return err
@@ -82,7 +82,7 @@ func (s *GameService) UnlockComponentCrafting() error {
 // CraftComponent starts a single craft job and deducts scrap immediately.
 func (s *GameService) CraftComponent() error {
 	command := commands.CraftComponent{
-		CommandIDValue: "craft_component",
+		ID: "craft_component",
 	}
 	_, err := s.Execute(command)
 	return err
@@ -91,7 +91,7 @@ func (s *GameService) CraftComponent() error {
 // ClaimCraftedComponent claims a finished craft job and grants one component.
 func (s *GameService) ClaimCraftedComponent() (int64, error) {
 	command := &commands.ClaimCraftedComponent{
-		CommandIDValue: "claim_crafted_component",
+		ID: "claim_crafted_component",
 	}
 	_, err := s.Execute(command)
 	return int64(command.ComponentsGained), err
@@ -100,7 +100,7 @@ func (s *GameService) ClaimCraftedComponent() (int64, error) {
 // CancelCraft cancels an active craft job and refunds its scrap cost.
 func (s *GameService) CancelCraft() error {
 	command := commands.CancelCraft{
-		CommandIDValue: "cancel_craft",
+		ID: "cancel_craft",
 	}
 	_, err := s.Execute(command)
 	return err
