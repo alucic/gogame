@@ -1,5 +1,11 @@
 # gogame
 
+# kraftat se mogu relics
+- maksimalno tjedno mozes imat 20h speedup queue po 1h izkraftano tako da ljudi mogu planirat malo bolje FS i tajming
+- Fleet speed kraft artifact, ili neki booster za produkciju s gornjim tjednim limitom
+
+Meni trenutno 8h50min FS ne odgovara, bilo bi odlicno kad bi ga moga uštelit s tim itemima na nesto sta mi paše
+
 ### Core resources
 - Scrap
 - Energy
