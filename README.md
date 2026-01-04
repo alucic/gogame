@@ -1,5 +1,8 @@
 # gogame
 
+# Resource spending
+You don't spend all at once, you can work toward something constantly for as long as you have resources. If something costs 100 and takes 10h to build, and you build 2 hours, you can pause it and come back to it later and continue 8h. In other words, time and money spent towards doing something accumulate, and each building has resource per hour cost.
+
 # kraftat se mogu relics
 - maksimalno tjedno mozes imat 20h speedup queue po 1h izkraftano tako da ljudi mogu planirat malo bolje FS i tajming
 - Fleet speed kraft artifact, ili neki booster za produkciju s gornjim tjednim limitom
