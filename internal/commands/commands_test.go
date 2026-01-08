@@ -42,6 +42,16 @@ func TestCraftComponentCommand(t *testing.T) {
 	}
 }
 
+func TestStartCraftComponentCommand(t *testing.T) {
+	cmd := StartCraftComponent{ID: "start-1"}
+	if cmd.CommandID() != "start-1" {
+		t.Fatalf("expected CommandID start-1 got %s", cmd.CommandID())
+	}
+	if cmd.Name() != "StartCraftComponent" {
+		t.Fatalf("expected name StartCraftComponent got %s", cmd.Name())
+	}
+}
+
 func TestClaimCraftedComponentCommand(t *testing.T) {
 	cmd := &ClaimCraftedComponent{ID: "claim-1"}
 	if cmd.CommandID() != "claim-1" {

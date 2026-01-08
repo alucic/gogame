@@ -81,8 +81,13 @@ func (s *GameService) UnlockComponentCrafting() error {
 
 // CraftComponent starts a single craft job and deducts scrap immediately.
 func (s *GameService) CraftComponent() error {
-	command := commands.CraftComponent{
-		ID: "craft_component",
+	return s.StartCraftComponent()
+}
+
+// StartCraftComponent starts a single craft job and deducts scrap immediately.
+func (s *GameService) StartCraftComponent() error {
+	command := commands.StartCraftComponent{
+		ID: "legacy_start_craft",
 	}
 	_, err := s.Execute(command)
 	return err
@@ -176,6 +181,38 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 		}
 	case commands.CraftComponent:
 		err = s.craftComponentLocked()
+		if err == nil {
+			s.eventSequence++
+			startEvent := events.New(
+				s.eventSequence,
+				s.clock.Now(),
+				cmd.CommandID(),
+				events.EventTypeComponentCraftStarted,
+				events.ComponentCraftStartedData{
+					Cost:       int64(s.cfg.CraftComponentCost),
+					FinishesAt: s.state.ActiveCraft.FinishesAt,
+				},
+			)
+			s.events = append(s.events, startEvent)
+			eventsList = append(eventsList, startEvent)
+		}
+	case commands.StartCraftComponent:
+		err = s.craftComponentLocked()
+		if err == nil {
+			s.eventSequence++
+			startEvent := events.New(
+				s.eventSequence,
+				s.clock.Now(),
+				cmd.CommandID(),
+				events.EventTypeComponentCraftStarted,
+				events.ComponentCraftStartedData{
+					Cost:       int64(s.cfg.CraftComponentCost),
+					FinishesAt: s.state.ActiveCraft.FinishesAt,
+				},
+			)
+			s.events = append(s.events, startEvent)
+			eventsList = append(eventsList, startEvent)
+		}
 	case *commands.ClaimCraftedComponent:
 		var gained uint64
 		gained, err = s.claimCraftedComponentLocked()

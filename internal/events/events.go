@@ -7,6 +7,7 @@ type EventType string
 
 const EventTypeScrapSettled EventType = "ScrapSettled"
 const EventTypeCraftingUnlocked EventType = "CraftingUnlocked"
+const EventTypeComponentCraftStarted EventType = "ComponentCraftStarted"
 
 // ScrapSettledData is the payload for a scrap settlement event.
 type ScrapSettledData struct {
@@ -18,6 +19,12 @@ type ScrapSettledData struct {
 // CraftingUnlockedData is the payload for a crafting unlock event.
 type CraftingUnlockedData struct {
 	Cost int64
+}
+
+// ComponentCraftStartedData is the payload for a craft start event.
+type ComponentCraftStartedData struct {
+	Cost       int64
+	FinishesAt time.Time
 }
 
 // Event represents a game event produced by command execution.

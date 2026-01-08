@@ -789,6 +789,188 @@ func TestCraftComponentConcurrent(t *testing.T) {
 	}
 }
 
+func TestExecuteStartCraftComponentLocked(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	_, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+	if err != ErrCraftingLocked {
+		t.Fatalf("expected ErrCraftingLocked got %v", err)
+	}
+}
+
+func TestExecuteStartCraftComponentInsufficient(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.BaseScrapProduction = 0
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 9
+	svc.mu.Unlock()
+
+	_, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+	if err != ErrInsufficientScrap {
+		t.Fatalf("expected ErrInsufficientScrap got %v", err)
+	}
+}
+
+func TestExecuteStartCraftComponentInProgress(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.BaseScrapProduction = 0
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 20
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	_, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+	if err != ErrCraftInProgress {
+		t.Fatalf("expected ErrCraftInProgress got %v", err)
+	}
+}
+
+func TestExecuteStartCraftComponentEmitsEvent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.CraftDurationSecs = 10
+	cfg.BaseScrapProduction = 0
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 10
+	svc.mu.Unlock()
+
+	result, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+	if err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(result.Events))
+	}
+	ev := result.Events[0]
+	if ev.Type != events.EventTypeComponentCraftStarted {
+		t.Fatalf("expected ComponentCraftStarted got %s", ev.Type)
+	}
+	if ev.CommandID != "start-1" {
+		t.Fatalf("expected CommandID start-1 got %s", ev.CommandID)
+	}
+	data, ok := ev.Data.(events.ComponentCraftStartedData)
+	if !ok {
+		t.Fatalf("expected ComponentCraftStartedData payload")
+	}
+	if data.Cost != 10 {
+		t.Fatalf("expected Cost 10 got %d", data.Cost)
+	}
+	if !data.FinishesAt.Equal(start.Add(10 * time.Second)) {
+		t.Fatalf("expected FinishesAt %v got %v", start.Add(10*time.Second), data.FinishesAt)
+	}
+}
+
+func TestExecuteStartCraftComponentSettlementThenStart(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.CraftDurationSecs = 10
+	cfg.BaseScrapProduction = 1
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 9
+	svc.mu.Unlock()
+
+	clock.Advance(1 * time.Second)
+	result, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+	if err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected 2 events got %d", len(result.Events))
+	}
+	if result.Events[0].Type != events.EventTypeScrapSettled {
+		t.Fatalf("expected first event ScrapSettled got %s", result.Events[0].Type)
+	}
+	if result.Events[1].Type != events.EventTypeComponentCraftStarted {
+		t.Fatalf("expected second event ComponentCraftStarted got %s", result.Events[1].Type)
+	}
+	if result.Events[0].CommandID != "start-1" || result.Events[1].CommandID != "start-1" {
+		t.Fatalf("expected CommandID start-1 on both events")
+	}
+}
+
+func TestExecuteStartCraftComponentConcurrent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := config.Default()
+	cfg.CraftComponentCost = 10
+	cfg.BaseScrapProduction = 0
+	clock := &fakeClock{now: start}
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.CraftingUnlocked = true
+	svc.state.Scrap = 10
+	svc.mu.Unlock()
+
+	startCh := make(chan struct{})
+	errCh := make(chan error, 2)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			<-startCh
+			_, err := svc.Execute(commands.StartCraftComponent{ID: "start-1"})
+			errCh <- err
+		}()
+	}
+	close(startCh)
+	wg.Wait()
+	close(errCh)
+
+	var success, inProgress int
+	for err := range errCh {
+		if err == nil {
+			success++
+		} else if err == ErrCraftInProgress {
+			inProgress++
+		} else {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+	if success != 1 || inProgress != 1 {
+		t.Fatalf("expected 1 success and 1 ErrCraftInProgress got %d success %d in progress", success, inProgress)
+	}
+
+	eventsList := svc.ListEvents(0, 0)
+	if len(eventsList) != 1 {
+		t.Fatalf("expected 1 event got %d", len(eventsList))
+	}
+	if eventsList[0].Type != events.EventTypeComponentCraftStarted {
+		t.Fatalf("expected ComponentCraftStarted got %s", eventsList[0].Type)
+	}
+}
+
 func TestClaimCraftedComponentNoActiveCraft(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}

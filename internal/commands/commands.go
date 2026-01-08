@@ -59,6 +59,19 @@ func (c CraftComponent) Name() string {
 	return "CraftComponent"
 }
 
+// StartCraftComponent starts a component crafting job.
+type StartCraftComponent struct {
+	ID string
+}
+
+func (c StartCraftComponent) CommandID() string {
+	return c.ID
+}
+
+func (c StartCraftComponent) Name() string {
+	return "StartCraftComponent"
+}
+
 // ClaimCraftedComponent claims a completed craft and exposes components gained.
 type ClaimCraftedComponent struct {
 	ID               string
