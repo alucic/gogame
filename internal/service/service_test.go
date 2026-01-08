@@ -974,7 +974,9 @@ func TestExecuteStartCraftComponentConcurrent(t *testing.T) {
 func TestClaimCraftedComponentNoActiveCraft(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	if _, err := svc.ClaimCraftedComponent(); err != ErrNoActiveCraft {
 		t.Fatalf("expected ErrNoActiveCraft got %v", err)
@@ -984,7 +986,9 @@ func TestClaimCraftedComponentNoActiveCraft(t *testing.T) {
 func TestClaimCraftedComponentNotComplete(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -1003,7 +1007,9 @@ func TestClaimCraftedComponentNotComplete(t *testing.T) {
 func TestClaimCraftedComponentAtFinish(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -1030,7 +1036,9 @@ func TestClaimCraftedComponentAtFinish(t *testing.T) {
 func TestClaimCraftedComponentAfterFinish(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -1049,7 +1057,9 @@ func TestClaimCraftedComponentAfterFinish(t *testing.T) {
 func TestClaimCraftedComponentTwice(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -1071,7 +1081,9 @@ func TestClaimCraftedComponentTwice(t *testing.T) {
 func TestClaimCraftedComponentConcurrent(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := &fakeClock{now: start}
-	svc := NewGameService(config.Default(), clk, start)
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clk, start)
 
 	svc.mu.Lock()
 	svc.state.ActiveCraft = &domain.CraftJob{
@@ -1133,6 +1145,101 @@ func TestClaimCraftedComponentConcurrent(t *testing.T) {
 	}
 	if got.ActiveCraft != nil {
 		t.Fatalf("expected ActiveCraft cleared")
+	}
+}
+
+func TestClaimCraftedComponentEmitsEventOnSuccess(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: start}
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clock.Advance(10 * time.Second)
+	result, err := svc.Execute(&commands.ClaimCraftedComponent{ID: "claim-1"})
+	if err != nil {
+		t.Fatalf("expected success got %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event got %d", len(result.Events))
+	}
+	ev := result.Events[0]
+	if ev.Type != events.EventTypeComponentCraftClaimed {
+		t.Fatalf("expected ComponentCraftClaimed got %s", ev.Type)
+	}
+	if ev.CommandID != "claim-1" {
+		t.Fatalf("expected CommandID claim-1 got %s", ev.CommandID)
+	}
+	data, ok := ev.Data.(events.ComponentCraftClaimedData)
+	if !ok {
+		t.Fatalf("expected ComponentCraftClaimedData payload")
+	}
+	if data.Gained != 1 {
+		t.Fatalf("expected Gained 1 got %d", data.Gained)
+	}
+}
+
+func TestClaimCraftedComponentNoEventOnFailure(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: start}
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clock, start)
+
+	result, err := svc.Execute(&commands.ClaimCraftedComponent{ID: "claim-1"})
+	if err != ErrNoActiveCraft {
+		t.Fatalf("expected ErrNoActiveCraft got %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected 0 events got %d", len(result.Events))
+	}
+}
+
+func TestClaimCraftedComponentConcurrentEmitsSingleEvent(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: start}
+	cfg := config.Default()
+	cfg.BaseScrapProduction = 0
+	svc := NewGameService(cfg, clock, start)
+
+	svc.mu.Lock()
+	svc.state.ActiveCraft = &domain.CraftJob{
+		StartedAt:  start,
+		FinishesAt: start.Add(10 * time.Second),
+		ScrapCost:  10,
+	}
+	svc.mu.Unlock()
+
+	clock.Advance(10 * time.Second)
+
+	startCh := make(chan struct{})
+	var wg sync.WaitGroup
+	const workers = 20
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			<-startCh
+			_, _ = svc.Execute(&commands.ClaimCraftedComponent{ID: "claim-1"})
+		}()
+	}
+	close(startCh)
+	wg.Wait()
+
+	eventsList := svc.ListEvents(0, 0)
+	if len(eventsList) != 1 {
+		t.Fatalf("expected 1 event got %d", len(eventsList))
+	}
+	if eventsList[0].Type != events.EventTypeComponentCraftClaimed {
+		t.Fatalf("expected ComponentCraftClaimed got %s", eventsList[0].Type)
 	}
 }
 

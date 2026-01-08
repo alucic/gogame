@@ -217,6 +217,20 @@ func (s *GameService) Execute(cmd commands.Command) (Result, error) {
 		var gained uint64
 		gained, err = s.claimCraftedComponentLocked()
 		command.ComponentsGained = gained
+		if err == nil {
+			s.eventSequence++
+			claimedEvent := events.New(
+				s.eventSequence,
+				s.clock.Now(),
+				cmd.CommandID(),
+				events.EventTypeComponentCraftClaimed,
+				events.ComponentCraftClaimedData{
+					Gained: int64(gained),
+				},
+			)
+			s.events = append(s.events, claimedEvent)
+			eventsList = append(eventsList, claimedEvent)
+		}
 	case commands.CancelCraft:
 		err = s.cancelCraftLocked()
 	}
